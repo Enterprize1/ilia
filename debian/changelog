@@ -1,3 +1,37 @@
+ilia (0.17.0) jammy; urgency=medium
+
+  [ Kyle Anderson ]
+  * Removed newlines in debug() statements
+  * Respect icon size=0 harder
+  * Extract app sorting into a dedicated function for testing
+  * Fix prefix matching to sort correct
+  * Load icons async
+
+ -- Regolith Linux <regolith.linux@gmail.com>  Wed, 09 Jul 2025 14:48:47 +0000
+
+ilia (0.16.0) jammy; urgency=medium
+
+  [ PeterNaggschga ]
+  * added -q option to CommandPage.vala to allow quiet execution (i.e., no x-terminal-emulator is started and output is discarded)
+  * added -q option to --help message
+  * changed command execution from bash to nohup (part of coreutils)
+  * changed to not use nohup, but execute command directly (output is shown by invoking shell)
+
+  [ Khosrow Moossavi ]
+  * feat: use build-only to test pull request
+
+  [ harsha ]
+  * updated the deprecated meson.source_root
+
+  [ harshit ]
+  * enhanced searchBox of ilia
+
+  [ Manthan Patil ]
+  * fix: modified ctrl-v past behavior
+  * refactor
+
+ -- Regolith Linux <regolith.linux@gmail.com>  Sun, 11 May 2025 16:32:12 +0000
+
 ilia (0.15.1) jammy; urgency=medium
 
   [ Khosrow Moossavi ]

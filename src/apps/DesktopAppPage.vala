@@ -2,6 +2,7 @@ using Gtk;
 
 namespace Ilia {
     class DesktopAppPage : DialogPage, GLib.Object {
+        private static GLib.Timer app_timer;
         private const int ITEM_VIEW_COLUMNS = 4;
         private const int ITEM_VIEW_COLUMN_ICON = 0;
         private const int ITEM_VIEW_COLUMN_NAME = 1;
@@ -71,6 +72,8 @@ namespace Ilia {
         }
 
         public async void initialize(GLib.Settings settings, HashTable<string, string ?> arg_map, Gtk.Entry entry, SessionContoller sessionController, string wm_name, bool is_wayland) throws GLib.Error {
+            app_timer = new GLib.Timer();
+            app_timer.start();
             this.settings = settings;
             this.entry = entry;
             this.session_controller = sessionController;
@@ -85,17 +88,17 @@ namespace Ilia {
             filter = new Gtk.TreeModelFilter(model, null);
             filter.set_visible_func(filter_func);
 
-            create_item_view ();
+            create_item_view();
 
-            load_apps ();
+            load_apps();
 
             model.set_sort_func(1, app_sort_func);
             model.set_sort_column_id(1, SortType.ASCENDING);
 
-            set_selection ();
+            set_selection();
 
             var scrolled = new Gtk.ScrolledWindow(null, null);
-            scrolled.get_style_context ().add_class("scrolled_window");
+            scrolled.get_style_context().add_class("scrolled_window");
             scrolled.add(item_view);
             scrolled.expand = true;
 
@@ -115,17 +118,17 @@ namespace Ilia {
 
         // Automatically set the first item in the list as selected.
         private void set_selection() {
-            Gtk.TreeSelection selection = item_view.get_selection ();
+            Gtk.TreeSelection selection = item_view.get_selection();
 
-            if (selection.count_selected_rows () == 0) { // initial state, nothing explicitly selected by user
+            if (selection.count_selected_rows() == 0) {  // initial state, nothing explicitly selected by user
                 selection.set_mode(SelectionMode.SINGLE);
                 if (path == null)
-                    path = new Gtk.TreePath.first ();
+                    path = new Gtk.TreePath.first();
                 selection.select_path(path);
             } else { // an existing item has selection, ensure it's visible
                 var path_list = selection.get_selected_rows(null);
                 if (path_list != null) {
-                    unowned var element = path_list.first ();
+                    unowned var element = path_list.first();
                     item_view.scroll_to_cell(element.data, null, false, 0f, 0f);
                 }
             }
@@ -133,12 +136,13 @@ namespace Ilia {
 
         public void show() {
             item_view.grab_focus ();
+            debug("DesktopAppPage ready to accept keystrokes (%.3f seconds since app start)", app_timer.elapsed());
         }
 
         // Initialize the view displaying selections
         private void create_item_view() {
             item_view = new Gtk.TreeView.with_model(filter);
-            item_view.get_style_context ().add_class("item_view");
+            item_view.get_style_context().add_class("item_view");
             // Do not show column headers
             item_view.headers_visible = false;
 
@@ -150,8 +154,8 @@ namespace Ilia {
 
             // Create columns
             if (icon_size > 0)
-                item_view.insert_column_with_attributes(-1, "Icon", new CellRendererPixbuf (), "pixbuf", ITEM_VIEW_COLUMN_ICON);
-            item_view.insert_column_with_attributes(-1, "Name", new CellRendererText (), "text", ITEM_VIEW_COLUMN_NAME);
+                item_view.insert_column_with_attributes(-1, "Icon", new CellRendererPixbuf(), "pixbuf", ITEM_VIEW_COLUMN_ICON);
+            item_view.insert_column_with_attributes(-1, "Name", new CellRendererText(), "text", ITEM_VIEW_COLUMN_NAME);
 
             // Launch app on one click
             item_view.set_activate_on_single_click(true);
@@ -171,8 +175,8 @@ namespace Ilia {
             // Cause resorting
             // TODO: find cleaner way of causing re-sort
             model.set_sort_func(1, app_sort_func);
-            filter.refilter ();
-            set_selection ();
+            filter.refilter();
+            set_selection();
         }
 
         // called on enter when in text box
@@ -181,43 +185,34 @@ namespace Ilia {
                 execute_app(iter);
         }
 
+        /**
+         * Sort function for the application list
+         *
+         * This is a wrapper around the testable compare_desktop_apps utility function
+         * that extracts the necessary data from the TreeModel and TreeIter objects
+         */
         private int app_sort_func(TreeModel model, TreeIter a, TreeIter b) {
-            string query_string = entry.get_text ().down ();
+            string query_string = entry.get_text().down();
+
             DesktopAppInfo app_a;
             model.@get(a, ITEM_VIEW_COLUMN_APPINFO, out app_a);
             DesktopAppInfo app_b;
             model.@get(b, ITEM_VIEW_COLUMN_APPINFO, out app_b);
 
-            var app_a_name = app_a.get_name ().down ();
-            var app_b_name = app_b.get_name ().down ();
+            var app_a_name = app_a.get_name().down();
+            var app_b_name = app_b.get_name().down();
 
-            if (query_string.length > 0) {
-                var app_a_has_prefix = app_a_name.has_prefix(query_string);
-                var app_b_has_prefix = app_b_name.has_prefix(query_string);
+            var app_a_id = app_a.get_id();
+            var app_b_id = app_b.get_id();
 
-                if (query_string.length > 1 && (app_a_has_prefix || app_b_has_prefix)) {
-                    if (app_b_has_prefix && !app_b_has_prefix)
-                        // stdout.printf ("boosted %s for %s\n", app_a.get_name (), query_string);
-                        return -1;
-                    else if (!app_a_has_prefix && app_b_has_prefix)
-                        // stdout.printf ("boosted %s for %s\n", app_b.get_name (), query_string);
-                        return 1;
-                }
-            }
-
-            var a_count = launch_counts.get(app_a.get_id ());
-            var b_count = launch_counts.get(app_b.get_id ());
-
-            if (a_count > 0 || b_count > 0) {
-                if (a_count > b_count)
-                    return -1;
-                else if (a_count < b_count)
-                    return 1;
-                else
-                    return 0;
-            }
-
-            return app_a_name.ascii_casecmp(app_b_name);
+            return compare_desktop_apps(
+                app_a_name,
+                app_b_name,
+                app_a_id,
+                app_b_id,
+                query_string,
+                launch_counts
+            );
         }
 
         private HashTable<string, int> load_launch_counts(string[] history) {
@@ -231,54 +226,48 @@ namespace Ilia {
                     table.insert(app_name, 1);
             }
 
-            /*
-               table.foreach ((key, val) => {
-                print ("%s => %d\n", key, val);
-               });
-             */
 
             return table;
         }
 
         // traverse the model and show items with metadata that matches entry filter string
         private bool filter_func(Gtk.TreeModel m, Gtk.TreeIter iter) {
-            string query_string = entry.get_text ().down ().strip ();
+            string query_string = entry.get_text().down().strip();
 
             if (query_string.length > 0) {
                 GLib.Value app_info;
                 string strval;
                 model.get_value(iter, ITEM_VIEW_COLUMN_NAME, out app_info);
-                strval = app_info.get_string ();
+                strval = app_info.get_string();
 
-                if (strval != null && strval.down ().contains(query_string))return true;
+                if (strval != null && strval.down().contains(query_string)) return true;
 
                 model.get_value(iter, ITEM_VIEW_COLUMN_KEYWORDS, out app_info);
-                strval = app_info.get_string ();
+                strval = app_info.get_string();
 
-                return strval != null && strval.down ().contains(query_string);
+                return strval != null && strval.down().contains(query_string);
             } else {
                 return true;
             }
         }
 
         private void load_apps() {
-            // var start_time = get_monotonic_time();
             // determine theme for icons
-            icon_theme = Gtk.IconTheme.get_default ();
+            icon_theme = Gtk.IconTheme.get_default();
             // Set a blank icon to avoid visual jank as real icons are loaded
             Gdk.Pixbuf blank_icon = new Gdk.Pixbuf(Gdk.Colorspace.RGB, false, 8, icon_size, icon_size);
 
-            var app_list = AppInfo.get_all ();
+            var app_list = AppInfo.get_all();
             foreach (AppInfo appinfo in app_list) {
                 read_desktop_file(appinfo, blank_icon);
             }
-            // stdout.printf("time cost: %" + int64.FORMAT + "\n", (get_monotonic_time() - start_time));
+            debug("Finished loading all apps (%.3f seconds since app start)", app_timer.elapsed());
         }
 
         private void read_desktop_file(AppInfo appInfo, Gdk.Pixbuf ? icon_img) {
-            DesktopAppInfo app_info = new DesktopAppInfo(appInfo.get_id ());
+            DesktopAppInfo app_info = new DesktopAppInfo(appInfo.get_id());
 
-            if (app_info != null && app_info.should_show ()) {
+            if (app_info != null && app_info.should_show()) {
                 model.append(out iter);
 
                 var keywords = app_info.get_string("Comment") + app_info.get_string("Keywords");
@@ -287,43 +276,73 @@ namespace Ilia {
                     model.set(
                         iter,
                         ITEM_VIEW_COLUMN_ICON, icon_img,
-                        ITEM_VIEW_COLUMN_NAME, app_info.get_name (),
+                        ITEM_VIEW_COLUMN_NAME, app_info.get_name(),
                         ITEM_VIEW_COLUMN_KEYWORDS, keywords,
                         ITEM_VIEW_COLUMN_APPINFO, app_info
                     );
                 else
                     model.set(
                         iter,
-                        ITEM_VIEW_COLUMN_NAME, app_info.get_name (),
+                        ITEM_VIEW_COLUMN_NAME, app_info.get_name(),
                         ITEM_VIEW_COLUMN_KEYWORDS, keywords,
                         ITEM_VIEW_COLUMN_APPINFO, app_info
                     );
             }
         }
 
-        // Iterate over model and load icons
         void loadAppIcons() {
-            // stdout.printf("loadAppIcons start: %" + int64.FORMAT + "\n", (get_monotonic_time() - start_time));
+            load_icons_async.begin((obj, res) => {
+                try {
+                    load_icons_async.end(res);
+                } catch (Error e) {
+                    stderr.printf("Error loading icons: %s\n", e.message);
+                }
+            });
+        }
+
+        // Asynchronously load icons with idle priority to avoid UI blocking
+        private async void load_icons_async() throws Error {
+            // Store iterators in a standard array
+            TreeIter[] iterators = {};
             TreeIter app_iter;
-            Value app_info_val;
 
+            // First collect all iterators
             for (bool next = model.get_iter_first(out app_iter); next; next = model.iter_next(ref app_iter)) {
-                model.get_value(app_iter, ITEM_VIEW_COLUMN_APPINFO, out app_info_val);
-
-                Gdk.Pixbuf icon = Ilia.load_icon_from_info(icon_theme, (DesktopAppInfo) app_info_val, icon_size);
-
-                model.set(
-                    app_iter,
-                    ITEM_VIEW_COLUMN_ICON, icon
-                );
+                iterators += app_iter;
             }
-            // stdout.printf("loadAppIcons end  : %" + int64.FORMAT + "\n", (get_monotonic_time() - start_time));
+
+            foreach (TreeIter iter in iterators) {
+                // Yield to main loop after each icon to keep UI maximally responsive
+                Idle.add(load_icons_async.callback);
+                yield;
+
+                // Load the icon
+                Value app_info_val;
+                model.get_value(iter, ITEM_VIEW_COLUMN_APPINFO, out app_info_val);
+
+                Gdk.Pixbuf ? icon = Ilia.load_icon_from_info(
+                    icon_theme,
+                    (DesktopAppInfo) app_info_val,
+                    icon_size
+                );
+
+                // Update the model with the loaded icon if successful
+                if (icon != null)
+                    Idle.add(() => {
+                        model.set(
+                            iter,
+                            ITEM_VIEW_COLUMN_ICON, icon
+                        );
+                        return false;
+                    });
+            }
+            debug("Finished loading all icons (%.3f seconds since app start)", app_timer.elapsed());
         }
 
         // In the case that neither success or failure signals are received, exit after a timeout
         private async void launch_failure_exit() {
             GLib.Timeout.add(post_launch_sleep, () => {
-                session_controller.quit ();
+                session_controller.quit();
                 return false;
             }, GLib.Priority.DEFAULT);
             yield;
@@ -336,27 +355,27 @@ namespace Ilia {
 
             try {
                 AppInfo runner = get_runner_app_info(app_info);
-                AppLaunchContext ctx = new AppLaunchContext ();
+                AppLaunchContext ctx = new AppLaunchContext();
 
                 ctx.launched.connect((info, platform_data) => {
-                    session_controller.quit ();
+                    session_controller.quit();
                 });
 
                 ctx.launch_failed.connect((startup_notify_id) => {
                     stderr.printf("Failed to launch app: %s\n", startup_notify_id);
-                    session_controller.quit ();
+                    session_controller.quit();
                 });
 
 
                 ctx.launch_started.connect((info, platform_data) => {
-                    launch_failure_exit.begin ();
+                    launch_failure_exit.begin();
                     // TODO ~ perhaps add some visual hint that launch process has begun
                 });
 
                 var result = runner.launch(null, ctx);
 
                 if (result) {
-                    string key = app_info.get_id ();
+                    string key = app_info.get_id();
                     if (launch_history == null) {
                         launch_history = { key };
                     } else {
@@ -368,12 +387,12 @@ namespace Ilia {
                     else
                         settings.set_strv("app-launch-counts", launch_history[1 : HISTORY_MAX_LEN]);
                 } else {
-                    stderr.printf("Failed to launch %s\n", app_info.get_name ());
-                    session_controller.quit ();
+                    stderr.printf("Failed to launch %s\n", app_info.get_name());
+                    session_controller.quit();
                 }
             } catch (GLib.Error e) {
                 stderr.printf("%s\n", e.message);
-                session_controller.quit ();
+                session_controller.quit();
             }
         }
     }
